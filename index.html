@@ -82,6 +82,9 @@ h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
 h2 { font-size: 17px; font-weight: 600; }
 .top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .top small { color: var(--muted); font-size: 13px; }
+.top { align-items: center; }
+.theme-btn { white-space: nowrap; }
+h2 .count { font-family: var(--font-body); font-weight: 400; font-size: 13px; color: var(--muted); margin-left: 6px; }
 .top-right { display: flex; align-items: center; gap: 10px; }
 .theme-btn { color: var(--muted); }
 
@@ -94,7 +97,9 @@ h2 { font-size: 17px; font-weight: 600; }
   flex-direction: column;
   gap: 12px;
 }
-.langbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.langbar { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; min-width: 0; }
+.langbar .chip-static { white-space: nowrap; flex: none; }
+.langbar select { flex: 1 1 auto; min-width: 0; }
 .chip-static {
   font-size: 13px; color: var(--muted);
   padding: 6px 10px; border-radius: 999px; border: 1px dashed var(--line);
@@ -116,9 +121,11 @@ textarea {
 }
 .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .tools { display: flex; gap: 8px; margin-top: -4px; }
-.tools .ghost { font-size: 14px; padding: 7px 16px; }
-.tools { flex-wrap: wrap; justify-content: flex-end; }
-.tools .auto { margin-right: auto; color: var(--muted); }
+.tools .ghost { font-size: 14px; padding: 7px 14px; white-space: nowrap; flex: none; }
+.tools { flex-wrap: nowrap; justify-content: flex-end; align-items: center; }
+.tools .auto { margin-right: auto; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; padding-inline: 12px; }
+.tools .auto::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.tools .auto[aria-pressed="true"]::before { background: var(--accent); }
 .tools .auto[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .result { transition: opacity .15s; }
 .result.updating { opacity: .5; }
@@ -220,7 +227,6 @@ textarea {
   <header class="top">
     <h1>Çevirmen</h1>
     <div class="top-right">
-      <small id="histCount"></small>
       <button type="button" class="ghost theme-btn" id="themeBtn" aria-label="Tema">Tema: Otomatik</button>
     </div>
   </header>
@@ -233,7 +239,7 @@ textarea {
     </div>
     <textarea id="src" rows="5" placeholder="Çevrilecek metni yaz veya yapıştır"></textarea>
     <div class="tools">
-      <button type="button" class="ghost auto" id="autoBtn" aria-pressed="true">Canlı: Açık</button>
+      <button type="button" class="ghost auto" id="autoBtn" aria-pressed="true">Canlı</button>
       <button type="button" class="ghost danger" id="clearBtn" hidden>Temizle</button>
       <button type="button" class="ghost" id="pasteBtn">Yapıştır</button>
     </div>
@@ -293,7 +299,7 @@ textarea {
 
   <section class="history">
     <div class="histhead">
-      <h2>Geçmiş</h2>
+      <h2>Geçmiş <small id="histCount" class="count"></small></h2>
       <button type="button" class="ghost danger" id="clearAll" hidden>Tümünü sil</button>
     </div>
     <div class="confirm" id="confirm" hidden>
@@ -304,7 +310,7 @@ textarea {
     <ul id="hist"></ul>
     <p class="empty" id="histEmpty">Yaptığın çeviriler burada birikir. Birine dokununca tekrar açılır.</p>
   </section>
-  <p class="version">Sürüm 12</p>
+  <p class="version">Sürüm 14</p>
 </main>
 
 <script>
@@ -317,6 +323,8 @@ textarea {
   const API = "https://generativelanguage.googleapis.com/v1beta/models/";
 
   const $ = (id) => document.getElementById(id);
+  // Android uygulamasinin icinde calisiyorsa yerel kopru (pano, geri tusu, tema) kullanilir
+  const NATIVE = window.CevirmenNative || null;
   const form = $("form"), src = $("src"), goBtn = $("go"), msg = $("msg"), resultEl = $("result");
   const targetSel = $("target"), fallbackSel = $("fallback"), tgtName = $("tgtName");
   const histList = $("hist"), histEmpty = $("histEmpty"), histCount = $("histCount");
@@ -396,6 +404,7 @@ textarea {
     b.type = "button";
     b.onclick = () => {
       const done = () => { b.textContent = "Kopyalandı"; setTimeout(() => b.textContent = "Kopyala", 1400); };
+      if (NATIVE) { try { NATIVE.copy(text); done(); return; } catch (e) {} }
       try {
         navigator.clipboard.writeText(text).then(done, () => selectFallback(b));
       } catch (e) { selectFallback(b); }
@@ -470,7 +479,7 @@ textarea {
     histList.replaceChildren();
     histEmpty.hidden = history.length > 0;
     clearAll.hidden = history.length === 0 || !confirmBox.hidden;
-    histCount.textContent = history.length ? history.length + " çeviri" : "";
+    histCount.textContent = history.length ? String(history.length) : "";
     const fmt = new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     for (const h of history) {
       const li = el("li");
@@ -951,7 +960,7 @@ textarea {
   function armBackGuard() {
     // Chrome, kullanici etkilesimi aninda (dokunma bittiginde) eklenmeyen adimi
     // geri tusunda atlar ve sayfayi kapatir. Bu yuzden sadece aktif etkilesimde ekle.
-    if (backGuard) return;
+    if (backGuard || NATIVE) return;
     const ua = navigator.userActivation;
     if (ua && !ua.isActive) return;
     try { history.pushState({ cevirmenGuard: true }, ""); backGuard = true; } catch (e) {}
@@ -989,7 +998,7 @@ textarea {
   };
   pasteBtn.onclick = async () => {
     try {
-      const t = await navigator.clipboard.readText();
+      const t = NATIVE ? NATIVE.paste() : await navigator.clipboard.readText();
       if (t && t.trim()) {
         src.value = t;
         newSession();
@@ -1008,7 +1017,8 @@ textarea {
   // Yazarken cevir acma/kapama
   function updateAutoBtn() {
     autoBtn.setAttribute("aria-pressed", String(!!prefs.auto));
-    autoBtn.textContent = prefs.auto ? "Canlı: Açık" : "Canlı: Kapalı";
+    autoBtn.textContent = "Canlı";
+    autoBtn.title = prefs.auto ? "Yazarken çevir: açık" : "Yazarken çevir: kapalı";
   }
   autoBtn.onclick = () => {
     prefs.auto = !prefs.auto;
@@ -1030,6 +1040,7 @@ textarea {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
     themeMeta.setAttribute("content", dark ? "#0f131b" : "#2f4fd6");
     themeBtn.textContent = THEME_LABELS[mode];
+    if (NATIVE) { try { NATIVE.setDark(dark); } catch (e) {} }
   }
   themeBtn.onclick = () => {
     const order = ["auto", "dark", "light"];
@@ -1041,6 +1052,20 @@ textarea {
   setInterval(applyTheme, 60000);
   try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme); } catch (e) {}
   applyTheme();
+
+  // Android uygulamasi icin: geri tusu ve disaridan gelen metin
+  window.cevirmenBack = () => {
+    if (src.value.length > 0) { clearText(false); src.blur(); return true; }
+    if (!settings.hidden && settings.open && hasKey()) { settings.open = false; return true; }
+    return false;
+  };
+  window.cevirmenSetText = (t) => {
+    src.value = String(t || "");
+    newSession();
+    updateClearBtn();
+    window.scrollTo({ top: 0 });
+    translate();
+  };
 
   updateAutoBtn();
   updateClearBtn();
