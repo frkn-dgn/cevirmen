@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.Cevirmen" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+    <color name="bg">#F4F6FA</color>
+    <color name="ic_launcher_bg">#3B5BDB</color>
+</resources>
