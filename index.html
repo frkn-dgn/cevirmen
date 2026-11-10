@@ -97,6 +97,8 @@ textarea {
   padding: 12px; min-height: 120px; resize: vertical; width: 100%; box-sizing: border-box;
 }
 .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.tools { display: flex; gap: 8px; margin-top: -4px; }
+.tools .ghost { font-size: 14px; padding: 7px 16px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
 .seg button {
   font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0;
@@ -200,6 +202,10 @@ textarea {
       <select id="target" aria-label="Hedef dil"></select>
     </div>
     <textarea id="src" rows="5" placeholder="Çevrilecek metni yaz veya yapıştır"></textarea>
+    <div class="tools">
+      <button type="button" class="ghost" id="pasteBtn">Yapıştır</button>
+      <button type="button" class="ghost danger" id="clearBtn" hidden>Temizle</button>
+    </div>
     <div class="actions">
       <div class="seg" role="radiogroup" aria-label="Kalite" id="quality">
         <button type="button" role="radio" data-q="quick" aria-checked="false">Hızlı</button>
@@ -410,6 +416,7 @@ textarea {
       );
       btn.onclick = () => {
         src.value = h.source || "";
+        updateClearBtn();
         renderResult(r, null);
         showMsg("");
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -584,6 +591,33 @@ textarea {
   src.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); if (!busy) translate(); }
   });
+
+  // Metin kutusu: tek dokunusla temizle / panodan yapistir
+  const clearBtn = $("clearBtn"), pasteBtn = $("pasteBtn");
+  function updateClearBtn() { clearBtn.hidden = src.value.length === 0; }
+  src.addEventListener("input", updateClearBtn);
+  clearBtn.onclick = () => {
+    src.value = "";
+    updateClearBtn();
+    showMsg("");
+    src.focus();
+  };
+  pasteBtn.onclick = async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (t && t.trim()) {
+        src.value = t;
+        updateClearBtn();
+        showMsg("");
+      } else {
+        showMsg("Panoda metin yok.", true);
+      }
+    } catch (e) {
+      src.focus();
+      showMsg("Panoya erişilemedi. Kutuya uzun basıp Yapıştır'ı kullan.", true);
+    }
+  };
+  updateClearBtn();
 
   renderHistory();
 })();
