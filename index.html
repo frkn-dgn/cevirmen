@@ -281,7 +281,7 @@ textarea {
     <ul id="hist"></ul>
     <p class="empty" id="histEmpty">Yaptığın çeviriler burada birikir. Birine dokununca tekrar açılır.</p>
   </section>
-  <p class="version">Sürüm 8</p>
+  <p class="version">Sürüm 9</p>
 </main>
 
 <script>
@@ -673,16 +673,20 @@ textarea {
   // Metin yazilinca gecmise bir "koruma" adimi eklenir; geri tusu bu adimi yer.
   let backGuard = false;
   function armBackGuard() {
-    // Ekrana dokunma/yazma sirasinda eklenir; Chrome dokunusla eklenen adimi atlamaz
+    // Chrome, kullanici etkilesimi aninda (dokunma bittiginde) eklenmeyen adimi
+    // geri tusunda atlar ve sayfayi kapatir. Bu yuzden sadece aktif etkilesimde ekle.
     if (backGuard) return;
+    const ua = navigator.userActivation;
+    if (ua && !ua.isActive) return;
     try { history.pushState({ cevirmenGuard: true }, ""); backGuard = true; } catch (e) {}
   }
   function updateClearBtn() {
     clearBtn.hidden = src.value.length === 0;
     if (src.value.length > 0) armBackGuard();
   }
-  document.addEventListener("pointerdown", armBackGuard, true);
-  document.addEventListener("touchstart", armBackGuard, { capture: true, passive: true });
+  document.addEventListener("click", armBackGuard, true);
+  document.addEventListener("touchend", armBackGuard, { capture: true, passive: true });
+  document.addEventListener("pointerup", armBackGuard, true);
   window.addEventListener("popstate", () => {
     if (!backGuard) return;
     backGuard = false;
