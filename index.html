@@ -99,6 +99,11 @@ textarea {
 .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .tools { display: flex; gap: 8px; margin-top: -4px; }
 .tools .ghost { font-size: 14px; padding: 7px 16px; }
+.tools { flex-wrap: wrap; }
+.tools .auto { margin-left: auto; color: var(--muted); }
+.tools .auto[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.result { transition: opacity .15s; }
+.result.updating { opacity: .5; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
 .seg button {
   font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0;
@@ -205,6 +210,7 @@ textarea {
     <div class="tools">
       <button type="button" class="ghost" id="pasteBtn">Yapıştır</button>
       <button type="button" class="ghost danger" id="clearBtn" hidden>Temizle</button>
+      <button type="button" class="ghost auto" id="autoBtn" aria-pressed="true">Yazarken çevir: Açık</button>
     </div>
     <div class="actions">
       <div class="seg" role="radiogroup" aria-label="Kalite" id="quality">
@@ -274,7 +280,7 @@ textarea {
 
   // Ayarlar ve tercihler bu cihazin tarayicisinda tutulur
   const prefs = {
-    target: "Türkçe", fallback: "İngilizce", quality: "balanced",
+    target: "Türkçe", fallback: "İngilizce", quality: "balanced", auto: true,
     apiKey: "", modelBalanced: DEFAULT_MODELS.balanced, modelQuick: DEFAULT_MODELS.quick
   };
   try { Object.assign(prefs, JSON.parse(localStorage.getItem("cevirmen.prefs") || "{}")); } catch (e) {}
@@ -392,6 +398,8 @@ textarea {
   function persistHistory() { try { localStorage.setItem("cevirmen.history", JSON.stringify(history)); } catch (e) {} }
 
   function addHistory(item) {
+    // Ayni yazma oturumundaki onceki ara ceviri yerine yenisi yazilir
+    if (item.session && history[0] && history[0].session === item.session) history.shift();
     history = history.filter((h) => !(h.source === item.source && h.result && h.result.target_language === item.result.target_language));
     history.unshift(item);
     history = history.slice(0, MAX_HISTORY);
@@ -416,6 +424,7 @@ textarea {
       );
       btn.onclick = () => {
         src.value = h.source || "";
+        newSession();
         updateClearBtn();
         renderResult(r, null);
         showMsg("");
@@ -538,26 +547,54 @@ textarea {
     goBtn.classList.toggle("stop", b);
   }
 
-  async function translate() {
+  // Yazarken cevirme durumu
+  const AUTO_DELAY_MS = 1200;   // yazmayi biraktiktan sonra bekleme
+  const AUTO_MIN_CHARS = 3;
+  let reqId = 0;                // en son istegin numarasi, eski cevaplar yok sayilir
+  let autoTimer = null;
+  let lastKey = "";             // son cevrilen metin + diller, ayni seyi tekrar gondermemek icin
+  let editSession = Date.now(); // ayni yazma oturumundaki ara ceviriler gecmiste tek kayit olur
+
+  function newSession() { editSession = Date.now(); }
+
+  async function translate(opts) {
+    opts = opts || {};
+    const isAuto = !!opts.auto;
     const text = src.value.trim();
-    if (!text) { src.focus(); return; }
+    if (!text) { if (!isAuto) src.focus(); return; }
     if (!prefs.apiKey) {
+      if (isAuto) return;
       settings.open = true;
       apiKeyIn.focus();
       showMsg("Önce Ayarlar'a ücretsiz Gemini API anahtarını gir.");
       return;
     }
+    const target = targetSel.value, fallback = fallbackSel.value;
+    const key = text + "\u0000" + target + "\u0000" + fallback + "\u0000" + prefs.quality;
+    if (isAuto && key === lastKey) return;
+
+    // Devam eden istegi iptal et, yenisini baslat
+    if (ctl) ctl.abort();
+    clearTimeout(autoTimer);
+    const myId = ++reqId;
+    const myCtl = new AbortController();
+    ctl = myCtl;
     showMsg("");
     setBusy(true);
-    ctl = new AbortController();
-    const target = targetSel.value, fallback = fallbackSel.value;
-    const models = modelChain(prefs.quality);
-    resultEl.replaceChildren();
-    const t = el("div", "thinking");
-    t.append(el("span", "dot"), el("span", null, "Çevriliyor…"));
-    resultEl.append(t);
+
+    const hasResult = resultEl.querySelector(".main-tr") && !resultEl.querySelector(".badge");
+    if (hasResult) {
+      resultEl.classList.add("updating");
+    } else {
+      resultEl.replaceChildren();
+      const t = el("div", "thinking");
+      t.append(el("span", "dot"), el("span", null, "Çevriliyor…"));
+      resultEl.append(t);
+    }
+
     try {
-      const raw = await callWithFallback(buildPrompt(text, target, fallback), models, ctl.signal);
+      const raw = await callWithFallback(buildPrompt(text, target, fallback), modelChain(prefs.quality), myCtl.signal);
+      if (myId !== reqId) return;
       const r = parseJsonLoose(raw);
       const result = (r && typeof r.translation === "string" && r.translation.trim())
         ? {
@@ -570,34 +607,52 @@ textarea {
               .map((a) => ({ text: String(a.text).trim(), note: String(a.note || "").trim() }))
           }
         : { detected_language: "?", target_language: target, translation: raw.trim(), alternatives: [] };
+      lastKey = key;
       renderResult(result, null);
-      addHistory({ id: "t" + Date.now(), source: text, result, time: Date.now() });
+      addHistory({ id: "t" + Date.now(), source: text, result, time: Date.now(), session: editSession });
     } catch (e) {
-      resultEl.replaceChildren();
-      if (e && e.name === "AbortError") { /* kullanici durdurdu */ }
-      else if (e instanceof TypeError) showMsg("Bağlantı kurulamadı. İnterneti kontrol et.");
-      else showMsg((e && e.message) || "Bir sorun oldu, tekrar dene.");
+      if (myId !== reqId) return;
+      if (e && e.name === "AbortError") {
+        if (!hasResult) resultEl.replaceChildren();
+      } else {
+        if (!hasResult) resultEl.replaceChildren();
+        if (e instanceof TypeError) showMsg("Bağlantı kurulamadı. İnterneti kontrol et.");
+        else showMsg((e && e.message) || "Bir sorun oldu, tekrar dene.");
+      }
     } finally {
-      setBusy(false);
-      ctl = null;
+      if (myId === reqId) {
+        resultEl.classList.remove("updating");
+        setBusy(false);
+        ctl = null;
+      }
     }
+  }
+
+  function scheduleAuto() {
+    clearTimeout(autoTimer);
+    if (!prefs.auto) return;
+    if (src.value.trim().length < AUTO_MIN_CHARS) return;
+    autoTimer = setTimeout(() => translate({ auto: true }), AUTO_DELAY_MS);
   }
 
   form.addEventListener("submit", (ev) => {
     ev.preventDefault();
-    if (busy) { ctl && ctl.abort(); return; }
+    if (busy) { clearTimeout(autoTimer); reqId++; ctl && ctl.abort(); ctl = null; setBusy(false); resultEl.classList.remove("updating"); return; }
     translate();
   });
   src.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); if (!busy) translate(); }
+    if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); translate(); }
   });
 
   // Metin kutusu: tek dokunusla temizle / panodan yapistir
-  const clearBtn = $("clearBtn"), pasteBtn = $("pasteBtn");
+  const clearBtn = $("clearBtn"), pasteBtn = $("pasteBtn"), autoBtn = $("autoBtn");
   function updateClearBtn() { clearBtn.hidden = src.value.length === 0; }
-  src.addEventListener("input", updateClearBtn);
+  src.addEventListener("input", () => { updateClearBtn(); scheduleAuto(); });
   clearBtn.onclick = () => {
+    clearTimeout(autoTimer);
     src.value = "";
+    lastKey = "";
+    newSession();
     updateClearBtn();
     showMsg("");
     src.focus();
@@ -607,8 +662,10 @@ textarea {
       const t = await navigator.clipboard.readText();
       if (t && t.trim()) {
         src.value = t;
+        newSession();
         updateClearBtn();
         showMsg("");
+        if (prefs.auto) translate({ auto: true });
       } else {
         showMsg("Panoda metin yok.", true);
       }
@@ -617,8 +674,25 @@ textarea {
       showMsg("Panoya erişilemedi. Kutuya uzun basıp Yapıştır'ı kullan.", true);
     }
   };
-  updateClearBtn();
 
+  // Yazarken cevir acma/kapama
+  function updateAutoBtn() {
+    autoBtn.setAttribute("aria-pressed", String(!!prefs.auto));
+    autoBtn.textContent = prefs.auto ? "Yazarken çevir: Açık" : "Yazarken çevir: Kapalı";
+  }
+  autoBtn.onclick = () => {
+    prefs.auto = !prefs.auto;
+    savePrefs();
+    updateAutoBtn();
+    if (prefs.auto) scheduleAuto(); else clearTimeout(autoTimer);
+  };
+
+  // Dil degisince metin varsa yeniden cevir
+  targetSel.addEventListener("change", scheduleAuto);
+  fallbackSel.addEventListener("change", scheduleAuto);
+
+  updateAutoBtn();
+  updateClearBtn();
   renderHistory();
 })();
 </script>
