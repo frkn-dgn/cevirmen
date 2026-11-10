@@ -667,16 +667,39 @@ textarea {
 
   // Metin kutusu: tek dokunusla temizle / panodan yapistir
   const clearBtn = $("clearBtn"), pasteBtn = $("pasteBtn"), autoBtn = $("autoBtn");
-  function updateClearBtn() { clearBtn.hidden = src.value.length === 0; }
-  src.addEventListener("input", () => { updateClearBtn(); scheduleAuto(); });
-  clearBtn.onclick = () => {
+  // Geri tusu: metin varken once metni siler, bos ise normal geri gider.
+  // Metin yazilinca gecmise bir "koruma" adimi eklenir; geri tusu bu adimi yer.
+  let backGuard = false;
+  let ignorePop = false;
+  function updateClearBtn() {
+    clearBtn.hidden = src.value.length === 0;
+    if (src.value.length > 0 && !backGuard) {
+      try { history.pushState({ cevirmenGuard: true }, ""); backGuard = true; } catch (e) {}
+    }
+  }
+  window.addEventListener("popstate", () => {
+    if (ignorePop) { ignorePop = false; backGuard = false; return; }
+    if (!backGuard) return;
+    backGuard = false;
+    if (src.value.length > 0) {
+      clearText(false);
+      src.blur();
+    }
+  });
+  function clearText(focus) {
     clearTimeout(autoTimer);
     src.value = "";
     lastKey = "";
     newSession();
-    updateClearBtn();
+    clearBtn.hidden = true;
     showMsg("");
-    src.focus();
+    if (focus) src.focus();
+  }
+  src.addEventListener("input", () => { updateClearBtn(); scheduleAuto(); });
+  clearBtn.onclick = () => {
+    clearText(true);
+    // Koruma adimi artik gereksiz, gecmisten geri al
+    if (backGuard) { ignorePop = true; try { history.back(); } catch (e) { ignorePop = false; } }
   };
   pasteBtn.onclick = async () => {
     try {
