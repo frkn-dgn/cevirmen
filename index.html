@@ -117,7 +117,7 @@ textarea {
 .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .tools { display: flex; gap: 8px; margin-top: -4px; }
 .tools .ghost { font-size: 14px; padding: 7px 16px; }
-.tools { flex-wrap: wrap; }
+.tools { flex-wrap: wrap; justify-content: flex-end; }
 .tools .auto { margin-right: auto; color: var(--muted); }
 .tools .auto[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .result { transition: opacity .15s; }
@@ -209,6 +209,9 @@ textarea {
 }
 .field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .settings a { color: var(--accent); }
+.settings .box { display: flex; flex-direction: column; gap: 10px; }
+.settings .box[hidden] { display: none !important; }
+.field select { align-self: flex-start; }
 </style>
 </head>
 <body>
@@ -230,7 +233,7 @@ textarea {
     </div>
     <textarea id="src" rows="5" placeholder="Çevrilecek metni yaz veya yapıştır"></textarea>
     <div class="tools">
-      <button type="button" class="ghost auto" id="autoBtn" aria-pressed="true">Yazarken çevir: Açık</button>
+      <button type="button" class="ghost auto" id="autoBtn" aria-pressed="true">Canlı: Açık</button>
       <button type="button" class="ghost danger" id="clearBtn" hidden>Temizle</button>
       <button type="button" class="ghost" id="pasteBtn">Yapıştır</button>
     </div>
@@ -254,6 +257,25 @@ textarea {
   <details class="settings" id="settings">
     <summary>Ayarlar <span class="state" id="keyState"></span></summary>
     <div class="body">
+      <label class="field" for="provider">Çeviri servisi
+        <select id="provider">
+          <option value="gemini">Gemini (Google)</option>
+          <option value="groq">Groq (en hızlı)</option>
+        </select>
+      </label>
+      <div class="box" id="groqBox" hidden>
+        <label class="field" for="groqKey">Groq API anahtarı
+          <input id="groqKey" type="password" placeholder="gsk_..." autocomplete="off" spellcheck="false">
+        </label>
+        <span class="hint">Ücretsiz alınır: <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. Kart istemez. Gemini anahtarı da kayıtlıysa, Groq'a ulaşılamadığında otomatik Gemini kullanılır.</span>
+        <label class="field" for="groqQuality">Kaliteli mod modeli
+          <input id="groqQuality" type="text" spellcheck="false">
+        </label>
+        <label class="field" for="groqQuickIn">Hızlı mod modeli
+          <input id="groqQuickIn" type="text" spellcheck="false">
+        </label>
+      </div>
+      <div class="box" id="geminiBox">
       <label class="field" for="apiKey">Gemini API anahtarı
         <input id="apiKey" type="password" placeholder="AIza..." autocomplete="off" spellcheck="false">
       </label>
@@ -265,6 +287,7 @@ textarea {
         <input id="modelQuick" type="text" spellcheck="false">
       </label>
       <span class="hint">Model hata verirse "gemini-2.5-flash" veya "gemini-2.5-flash-lite" dene.</span>
+      </div>
     </div>
   </details>
 
@@ -281,7 +304,7 @@ textarea {
     <ul id="hist"></ul>
     <p class="empty" id="histEmpty">Yaptığın çeviriler burada birikir. Birine dokununca tekrar açılır.</p>
   </section>
-  <p class="version">Sürüm 10</p>
+  <p class="version">Sürüm 12</p>
 </main>
 
 <script>
@@ -304,7 +327,8 @@ textarea {
   // Ayarlar ve tercihler bu cihazin tarayicisinda tutulur
   const prefs = {
     target: "Türkçe", fallback: "İngilizce", quality: "balanced", auto: true, theme: "auto",
-    apiKey: "", modelBalanced: DEFAULT_MODELS.balanced, modelQuick: DEFAULT_MODELS.quick
+    apiKey: "", modelBalanced: DEFAULT_MODELS.balanced, modelQuick: DEFAULT_MODELS.quick,
+    provider: "gemini", groqKey: "", groqBalanced: "openai/gpt-oss-120b", groqQuick: "openai/gpt-oss-20b"
   };
   try { Object.assign(prefs, JSON.parse(localStorage.getItem("cevirmen.prefs") || "{}")); } catch (e) {}
   function savePrefs() { try { localStorage.setItem("cevirmen.prefs", JSON.stringify(prefs)); } catch (e) {} }
@@ -331,11 +355,24 @@ textarea {
   apiKeyIn.value = prefs.apiKey;
   modelQualityIn.value = prefs.modelBalanced;
   modelQuickIn.value = prefs.modelQuick;
+  const providerSel = $("provider"), groqBox = $("groqBox"), geminiBox = $("geminiBox");
+  const groqKeyIn = $("groqKey"), groqQualityIn = $("groqQuality"), groqQuickIn = $("groqQuickIn");
+  providerSel.value = prefs.provider === "groq" ? "groq" : "gemini";
+  groqKeyIn.value = prefs.groqKey;
+  groqQualityIn.value = prefs.groqBalanced;
+  groqQuickIn.value = prefs.groqQuick;
+  function hasKey() { return prefs.provider === "groq" ? !!prefs.groqKey : !!prefs.apiKey; }
   function updateKeyState() {
-    keyState.textContent = prefs.apiKey ? "Anahtar kayıtlı" : "Anahtar gerekli";
+    const name = prefs.provider === "groq" ? "Groq" : "Gemini";
+    keyState.textContent = name + (hasKey() ? " · anahtar kayıtlı" : " · anahtar gerekli");
+    groqBox.hidden = prefs.provider !== "groq";
   }
+  providerSel.onchange = () => { prefs.provider = providerSel.value; savePrefs(); updateKeyState(); lastKey = ""; };
+  groqKeyIn.addEventListener("input", () => { prefs.groqKey = groqKeyIn.value.trim(); savePrefs(); updateKeyState(); });
+  groqQualityIn.addEventListener("input", () => { prefs.groqBalanced = groqQualityIn.value.trim() || "openai/gpt-oss-120b"; savePrefs(); });
+  groqQuickIn.addEventListener("input", () => { prefs.groqQuick = groqQuickIn.value.trim() || "openai/gpt-oss-20b"; savePrefs(); });
   updateKeyState();
-  if (!prefs.apiKey) settings.open = true;
+  if (!hasKey()) settings.open = true;
   apiKeyIn.addEventListener("input", () => { prefs.apiKey = apiKeyIn.value.trim(); savePrefs(); updateKeyState(); });
   modelQualityIn.addEventListener("input", () => { prefs.modelBalanced = modelQualityIn.value.trim() || DEFAULT_MODELS.balanced; savePrefs(); });
   modelQuickIn.addEventListener("input", () => { prefs.modelQuick = modelQuickIn.value.trim() || DEFAULT_MODELS.quick; savePrefs(); });
@@ -470,7 +507,7 @@ textarea {
   let ctl = null;
   let busy = false;
 
-  function buildPrompt(text, target, fallback) {
+  function buildPrompt(text, target, fallback, forced) {
     return [
       "You are an expert human translator. Translate meaning, not words: write what a fluent native speaker",
       "would naturally write, preserving tone, register, intent, idioms, humor and politeness level.",
@@ -485,17 +522,34 @@ textarea {
       "- Each note is short (max ~12 words) and written in Turkish, saying how that alternative differs.",
       "- Language names in the output are written in Turkish (e.g. \"İngilizce\", \"Almanca\").",
       "",
-      "Target language: " + target + ".",
-      "If the text is already in " + target + ", translate it into " + fallback + " instead.",
+      forced
+        ? "Output language: " + forced + ". Translate the text into " + forced + ". The translation and every alternative must be written in " + forced + " only."
+        : "Output language rule: first identify the source language. If the source is " + target + ", the output language is " + fallback +
+          ". Otherwise the output language is " + target + ". The translation and every alternative must be written in the output language only," +
+          " never in the source language.",
       "",
       "Reply with only this JSON object and nothing else:",
-      "{\"translation\": \"...\", \"detected_language\": \"...\", \"target_language\": \"...\", \"alternatives\": [{\"text\": \"...\", \"note\": \"...\"}]}",
-      "Write the keys in exactly this order (translation first).",
+      "{\"detected_language\": \"...\", \"target_language\": \"<output language>\", \"translation\": \"...\", \"alternatives\": [{\"text\": \"...\", \"note\": \"...\"}]}",
+      "Write the keys in exactly this order.",
       "",
       "<text>",
       text,
       "</text>"
     ].join("\n");
+  }
+
+  // Kaynak hedef dildeyse ve ceviri kaynakla neredeyse ayni kelimelerden olusuyorsa
+  // model yedek dile cevirmemis demektir
+  function normLang(x) { return String(x || "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim(); }
+  function words(x) { return new Set(String(x || "").toLocaleLowerCase("tr").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1)); }
+  function needsForcedRetry(r, source, target) {
+    if (!r || typeof r.translation !== "string") return false;
+    if (normLang(r.detected_language) !== normLang(target)) return false;
+    const a = words(source), b = words(r.translation);
+    if (!a.size || !b.size) return false;
+    let common = 0;
+    for (const w of b) if (a.has(w)) common++;
+    return common / Math.min(a.size, b.size) >= 0.25 || normLang(r.target_language) === normLang(target);
   }
 
   function friendlyError(status, apiMsg) {
@@ -641,6 +695,123 @@ textarea {
     p.textContent = text;
   }
 
+  // ---------- Groq (cok hizli, ucretsiz katman) ----------
+  const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+  const groqOk = {};  // model -> calisan parametre varyanti
+  function groqVariants() {
+    return [
+      { reasoning_effort: "low", include_reasoning: false },
+      { reasoning_effort: "low" },
+      {}
+    ];
+  }
+  function groqChain(quick) {
+    const list = quick
+      ? [prefs.groqQuick, "openai/gpt-oss-20b", "openai/gpt-oss-120b"]
+      : [prefs.groqBalanced, "openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+    return [...new Set(list.filter(Boolean))];
+  }
+
+  async function groqStreamOnce(prompt, model, extra, signal, onText) {
+    const res = await fetch(GROQ_URL, {
+      method: "POST",
+      signal,
+      headers: { "content-type": "application/json", "authorization": "Bearer " + prefs.groqKey },
+      body: JSON.stringify(Object.assign({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        stream: true
+      }, extra))
+    });
+    if (!res.ok) {
+      let body = "";
+      try { body = await res.text(); } catch (e) {}
+      throw apiError(res.status, body);
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", out = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        let d;
+        try { d = JSON.parse(payload); } catch (e) { continue; }
+        if (d.error) throw apiError(500, JSON.stringify(d));
+        const delta = d.choices && d.choices[0] && d.choices[0].delta;
+        if (delta && delta.content) { out += delta.content; if (onText) onText(out); }
+      }
+    }
+    if (!out.trim()) throw new Error("Boş yanıt geldi, tekrar dene.");
+    return out;
+  }
+
+  async function callGroq(prompt, model, signal, onText) {
+    const variants = groqVariants();
+    let i = groqOk[model] != null ? groqOk[model] : 0;
+    for (; i < variants.length; i++) {
+      let started = false;
+      try {
+        const out = await groqStreamOnce(prompt, model, variants[i], signal, (t) => { started = true; onText && onText(t); });
+        groqOk[model] = i;
+        return out;
+      } catch (e) {
+        if (!started && e && e.status === 400 && i < variants.length - 1) continue;
+        e.started = started;
+        throw e;
+      }
+    }
+    throw new Error("Bir sorun oldu, tekrar dene.");
+  }
+
+  async function groqWithFallback(prompt, models, signal, onText) {
+    let lastErr = null;
+    for (const m of models) {
+      try {
+        return await callGroq(prompt, m, signal, onText);
+      } catch (e) {
+        lastErr = e;
+        const s = e && e.status;
+        if (e instanceof TypeError || e.name === "AbortError") throw e;
+        const retryable = !e.started && (s === 404 || s === 429 || (s >= 500 && s < 600));
+        if (!retryable) throw e;
+      }
+    }
+    throw lastErr;
+  }
+
+  // Secili saglayiciyla cevir; Groq ulasilamazsa ve Gemini anahtari varsa Gemini'ye gec
+  async function callProvider(prompt, signal, onText) {
+    const quick = prefs.quality === "quick";
+    if (prefs.provider === "groq") {
+      try {
+        return await groqWithFallback(prompt, groqChain(quick), signal, onText);
+      } catch (e) {
+        if (e.name === "AbortError" || e.started) throw e;
+        const blocked = e instanceof TypeError;
+        const s = e && e.status;
+        const canFallback = prefs.apiKey && (blocked || s === 429 || (s >= 500 && s < 600));
+        if (!canFallback) {
+          if (blocked) throw new Error("Groq'a bu sayfadan bağlanılamadı (tarayıcı erişimine izin vermiyor olabilir). Ayarlar'dan Gemini'ye dön.");
+          throw e;
+        }
+        providerNote = blocked
+          ? "Groq'a bağlanılamadı, bu çeviri Gemini ile yapıldı."
+          : "Groq şu an yoğun ya da limit doldu, bu çeviri Gemini ile yapıldı.";
+      }
+    }
+    return callWithFallback(prompt, modelChain(prefs.quality), signal, onText, quick);
+  }
+  let providerNote = "";
+
   function modelChain(quality) {
     const list = quality === "quick"
       ? [prefs.modelQuick, "gemini-2.5-flash-lite", "gemini-2.5-flash"]
@@ -669,15 +840,15 @@ textarea {
     const isAuto = !!opts.auto;
     const text = src.value.trim();
     if (!text) { if (!isAuto) src.focus(); return; }
-    if (!prefs.apiKey) {
+    if (!hasKey()) {
       if (isAuto) return;
       settings.open = true;
-      apiKeyIn.focus();
-      showMsg("Önce Ayarlar'a ücretsiz Gemini API anahtarını gir.");
+      (prefs.provider === "groq" ? groqKeyIn : apiKeyIn).focus();
+      showMsg("Önce Ayarlar'a ücretsiz " + (prefs.provider === "groq" ? "Groq" : "Gemini") + " API anahtarını gir.");
       return;
     }
     const target = targetSel.value, fallback = fallbackSel.value;
-    const key = text + "\u0000" + target + "\u0000" + fallback + "\u0000" + prefs.quality;
+    const key = text + "\u0000" + target + "\u0000" + fallback + "\u0000" + prefs.quality + "\u0000" + prefs.provider;
     if (isAuto && key === lastKey) return;
 
     // Devam eden istegi iptal et, yenisini baslat
@@ -700,16 +871,29 @@ textarea {
     }
 
     try {
-      const raw = await callWithFallback(
-        buildPrompt(text, target, fallback), modelChain(prefs.quality), myCtl.signal,
+      providerNote = "";
+      const raw = await callProvider(
+        buildPrompt(text, target, fallback), myCtl.signal,
         (soFar) => {
           if (myId !== reqId) return;
           const part = partialTranslation(soFar);
           if (part) renderPartial(part);
-        },
-        prefs.quality === "quick");
+        });
       if (myId !== reqId) return;
-      const r = parseJsonLoose(raw);
+      let r = parseJsonLoose(raw);
+      if (r && needsForcedRetry(r, text, target)) {
+        // Model yedek dile cevirmeyi atladi: yedek dili acikca belirterek tekrar iste
+        const raw2 = await callProvider(
+          buildPrompt(text, target, fallback, fallback), myCtl.signal,
+          (soFar) => {
+            if (myId !== reqId) return;
+            const part = partialTranslation(soFar);
+            if (part) renderPartial(part);
+          });
+        if (myId !== reqId) return;
+        const r2 = parseJsonLoose(raw2);
+        if (r2 && r2.translation) r = Object.assign(r2, { detected_language: r.detected_language || r2.detected_language, target_language: fallback });
+      }
       const result = (r && typeof r.translation === "string" && r.translation.trim())
         ? {
             detected_language: String(r.detected_language || "?"),
@@ -723,6 +907,7 @@ textarea {
         : { detected_language: "?", target_language: target, translation: raw.trim(), alternatives: [] };
       lastKey = key;
       renderResult(result, null);
+      if (providerNote) showMsg(providerNote, true);
       addHistory({ id: "t" + Date.now(), source: text, result, time: Date.now(), session: editSession });
     } catch (e) {
       if (myId !== reqId) return;
@@ -823,7 +1008,7 @@ textarea {
   // Yazarken cevir acma/kapama
   function updateAutoBtn() {
     autoBtn.setAttribute("aria-pressed", String(!!prefs.auto));
-    autoBtn.textContent = prefs.auto ? "Yazarken çevir: Açık" : "Yazarken çevir: Kapalı";
+    autoBtn.textContent = prefs.auto ? "Canlı: Açık" : "Canlı: Kapalı";
   }
   autoBtn.onclick = () => {
     prefs.auto = !prefs.auto;
