@@ -194,6 +194,7 @@ textarea {
 }
 .del:hover { color: var(--danger); }
 .empty { color: var(--muted); font-size: 14px; margin: 0; }
+.version { color: var(--muted); font-size: 12px; margin: 8px 0 0; text-align: center; }
 
 /* Ayarlar */
 .settings { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 0 14px; }
@@ -280,6 +281,7 @@ textarea {
     <ul id="hist"></ul>
     <p class="empty" id="histEmpty">Yaptığın çeviriler burada birikir. Birine dokununca tekrar açılır.</p>
   </section>
+  <p class="version">Sürüm 8</p>
 </main>
 
 <script>
@@ -670,20 +672,26 @@ textarea {
   // Geri tusu: metin varken once metni siler, bos ise normal geri gider.
   // Metin yazilinca gecmise bir "koruma" adimi eklenir; geri tusu bu adimi yer.
   let backGuard = false;
-  let ignorePop = false;
+  function armBackGuard() {
+    // Ekrana dokunma/yazma sirasinda eklenir; Chrome dokunusla eklenen adimi atlamaz
+    if (backGuard) return;
+    try { history.pushState({ cevirmenGuard: true }, ""); backGuard = true; } catch (e) {}
+  }
   function updateClearBtn() {
     clearBtn.hidden = src.value.length === 0;
-    if (src.value.length > 0 && !backGuard) {
-      try { history.pushState({ cevirmenGuard: true }, ""); backGuard = true; } catch (e) {}
-    }
+    if (src.value.length > 0) armBackGuard();
   }
+  document.addEventListener("pointerdown", armBackGuard, true);
+  document.addEventListener("touchstart", armBackGuard, { capture: true, passive: true });
   window.addEventListener("popstate", () => {
-    if (ignorePop) { ignorePop = false; backGuard = false; return; }
     if (!backGuard) return;
     backGuard = false;
     if (src.value.length > 0) {
       clearText(false);
       src.blur();
+    } else {
+      // Silinecek metin yok: normal geri davranisina devam et
+      try { history.back(); } catch (e) {}
     }
   });
   function clearText(focus) {
@@ -698,8 +706,6 @@ textarea {
   src.addEventListener("input", () => { updateClearBtn(); scheduleAuto(); });
   clearBtn.onclick = () => {
     clearText(true);
-    // Koruma adimi artik gereksiz, gecmisten geri al
-    if (backGuard) { ignorePop = true; try { history.back(); } catch (e) { ignorePop = false; } }
   };
   pasteBtn.onclick = async () => {
     try {
