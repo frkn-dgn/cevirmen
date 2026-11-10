@@ -3,7 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#2f4fd6">
+<meta name="theme-color" content="#2f4fd6" id="themeMeta">
+<script>
+  // Sayfa cizilmeden temayi uygula (beyaz parlama olmasin)
+  window.__pickDark = function (mode) {
+    if (mode === "dark") return true;
+    if (mode === "light") return false;
+    var h = new Date().getHours();
+    var sys = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+    return sys || h >= 19 || h < 7;
+  };
+  try {
+    var p = JSON.parse(localStorage.getItem("cevirmen.prefs") || "{}");
+    var d = window.__pickDark(p.theme || "auto");
+    document.documentElement.setAttribute("data-theme", d ? "dark" : "light");
+    document.querySelector("#themeMeta").setAttribute("content", d ? "#0f131b" : "#2f4fd6");
+  } catch (e) {}
+</script>
 <meta name="google" content="notranslate">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -66,6 +82,8 @@ h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
 h2 { font-size: 17px; font-weight: 600; }
 .top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .top small { color: var(--muted); font-size: 13px; }
+.top-right { display: flex; align-items: center; gap: 10px; }
+.theme-btn { color: var(--muted); }
 
 .panel {
   background: var(--surface);
@@ -197,7 +215,10 @@ textarea {
 <main class="wrap">
   <header class="top">
     <h1>Çevirmen</h1>
-    <small id="histCount"></small>
+    <div class="top-right">
+      <small id="histCount"></small>
+      <button type="button" class="ghost theme-btn" id="themeBtn" aria-label="Tema">Tema: Otomatik</button>
+    </div>
   </header>
 
   <form class="panel" id="form" autocomplete="off">
@@ -280,7 +301,7 @@ textarea {
 
   // Ayarlar ve tercihler bu cihazin tarayicisinda tutulur
   const prefs = {
-    target: "Türkçe", fallback: "İngilizce", quality: "balanced", auto: true,
+    target: "Türkçe", fallback: "İngilizce", quality: "balanced", auto: true, theme: "auto",
     apiKey: "", modelBalanced: DEFAULT_MODELS.balanced, modelQuick: DEFAULT_MODELS.quick
   };
   try { Object.assign(prefs, JSON.parse(localStorage.getItem("cevirmen.prefs") || "{}")); } catch (e) {}
@@ -690,6 +711,27 @@ textarea {
   // Dil degisince metin varsa yeniden cevir
   targetSel.addEventListener("change", scheduleAuto);
   fallbackSel.addEventListener("change", scheduleAuto);
+
+  // Tema: Otomatik (sistem koyuysa veya 19:00-07:00 arasi koyu) / Koyu / Acik
+  const themeBtn = $("themeBtn"), themeMeta = $("themeMeta");
+  const THEME_LABELS = { auto: "Tema: Otomatik", dark: "Tema: Koyu", light: "Tema: Açık" };
+  function applyTheme() {
+    const mode = THEME_LABELS[prefs.theme] ? prefs.theme : "auto";
+    const dark = window.__pickDark(mode);
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    themeMeta.setAttribute("content", dark ? "#0f131b" : "#2f4fd6");
+    themeBtn.textContent = THEME_LABELS[mode];
+  }
+  themeBtn.onclick = () => {
+    const order = ["auto", "dark", "light"];
+    const i = order.indexOf(THEME_LABELS[prefs.theme] ? prefs.theme : "auto");
+    prefs.theme = order[(i + 1) % order.length];
+    savePrefs();
+    applyTheme();
+  };
+  setInterval(applyTheme, 60000);
+  try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme); } catch (e) {}
+  applyTheme();
 
   updateAutoBtn();
   updateClearBtn();
