@@ -100,7 +100,7 @@ textarea {
 .tools { display: flex; gap: 8px; margin-top: -4px; }
 .tools .ghost { font-size: 14px; padding: 7px 16px; }
 .tools { flex-wrap: wrap; }
-.tools .auto { margin-left: auto; color: var(--muted); }
+.tools .auto { margin-right: auto; color: var(--muted); }
 .tools .auto[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .result { transition: opacity .15s; }
 .result.updating { opacity: .5; }
@@ -208,9 +208,9 @@ textarea {
     </div>
     <textarea id="src" rows="5" placeholder="Çevrilecek metni yaz veya yapıştır"></textarea>
     <div class="tools">
-      <button type="button" class="ghost" id="pasteBtn">Yapıştır</button>
-      <button type="button" class="ghost danger" id="clearBtn" hidden>Temizle</button>
       <button type="button" class="ghost auto" id="autoBtn" aria-pressed="true">Yazarken çevir: Açık</button>
+      <button type="button" class="ghost danger" id="clearBtn" hidden>Temizle</button>
+      <button type="button" class="ghost" id="pasteBtn">Yapıştır</button>
     </div>
     <div class="actions">
       <div class="seg" role="radiogroup" aria-label="Kalite" id="quality">
